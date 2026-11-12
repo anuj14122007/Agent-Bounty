@@ -1,0 +1,48 @@
+# Render Blueprint Specification for AgentBounty
+# Streamlit Product Dashboard & Autonomous Agent Marketplace
+# Mode: OFFLINE DEMO MODE (Simulated Settlement)
+#
+# Supported Render Deployments:
+# -------------------------------------------------------------
+# Configuration A: Free Demonstration (Default / Zero-Cost)
+# - Remove the `disk` block below.
+# - SQLite database resides in `./data/agentbounty.db` on ephemeral filesystem.
+# - Schema migrations run automatically at runtime via ui/bootstrap.py.
+# - Data resets upon container restart or redeploy.
+# - 100% offline DEMO mode remains active.
+#
+# Configuration B: Persistent SQLite Demonstration (Paid Web Service)
+# - Retain the `disk` block below (mountPath: /opt/render/project/src/data).
+# - Database persists across restarts and redeployments.
+# - Startup migrations execute at application start AFTER persistent disk is mounted.
+# -------------------------------------------------------------
+
+services:
+  - type: web
+    name: agentbounty
+    runtime: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true"
+    healthCheckPath: "/_stcore/health"
+    autoDeploy: false
+    envVars:
+      - key: APP_ENV
+        value: demo
+      - key: DEMO_MODE
+        value: "true"
+      - key: PAYMENT_PROVIDER
+        value: mock
+      - key: MAX_BOUNTY_USD
+        value: "5.00"
+      - key: PAYPAL_PAYOUTS_ENABLED
+        value: "false"
+      - key: PAYPAL_ENVIRONMENT
+        value: sandbox
+      - key: PAYPAL_SENDER_COUNTRY
+        value: US
+      - key: DATABASE_URL
+        value: "sqlite:///./data/agentbounty.db"
+    disk:
+      name: agentbounty-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1

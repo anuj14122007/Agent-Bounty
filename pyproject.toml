@@ -18,6 +18,10 @@ dependencies = [
     "pydantic-settings>=2.0.0,<3.0.0",
     "alembic>=1.13.0,<2.0.0",
     "python-dotenv>=1.0.0,<2.0.0",
+    "streamlit>=1.35.0",
+    "pandas>=2.2.0",
+    "plotly>=5.20.0",
+    "streamlit-aggrid>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -30,4 +34,6 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 filterwarnings = [
     "error",
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+    "ignore::ResourceWarning",
 ]

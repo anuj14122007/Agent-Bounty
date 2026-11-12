@@ -43,15 +43,17 @@ Sessions 1, 2, and 3 are complete and verified:
 - [x] **Payment Execution & Idempotency Boundary:** Database-enforced idempotency key, pre-call state persistence (`SUBMITTED`), provider execution outside DB locks, definitive failure reversion.
 - [x] **Payment Status Reconciliation:** Idempotent reconciliation service resolving `PENDING` and `UNKNOWN` states without resubmission.
 - [x] **Persistent Transaction Ledger:** Filtered database queries and consolidated task payment histories.
-- [x] **Automated Test Suite:** 155 passing pytest unit, schema, and integration tests verifying all Session 1, 2 & 3 requirements.
+- [x] **Full Product Interface & Command Center (Session 4 Completed):** Dark fintech dashboard with live telemetry, task delegation, independent verification breakdown, explicit human approval gate, separate deliberate payment execution, and AG Grid financial settlement ledger.
+- [x] **Automated Test Suite:** 177 passing pytest unit, schema, integration, and Streamlit AppTest tests.
 
 ---
 
-## What Is NOT Implemented Yet
+## What Is NOT Implemented (Strict Scope Boundaries)
 
 As per the strict scope boundaries:
-- Streamlit interactive UI dashboard and human approval panel (Session 4).
-- Live real-money transactions (strictly excluded from product scope).
+- Live real-money transactions (strictly excluded from product scope; all executions run in `SIMULATED` demo mode).
+- Automatic payment execution without human authorization.
+- External LLM APIs (the platform runs 100% offline and deterministic).
 
 ---
 
@@ -94,8 +96,15 @@ Initialize or upgrade the local SQLite database using Alembic:
 alembic upgrade head
 ```
 
-### 6. Run Test Suite
-Execute the test suite with strict warning enforcement:
+### 6. Launch Streamlit Application
+Start the AgentBounty Command Center:
+```bash
+streamlit run app.py
+```
+Open `http://localhost:8501` in your browser.
+
+### 7. Run Test Suite
+Execute the full test suite (177 tests):
 ```bash
 python -m pytest -v
 ```
@@ -103,7 +112,7 @@ python -m pytest -v
 Run test suite quietly and check bytecode compilation:
 ```bash
 python -m pytest -q
-python -m compileall -q src tests
+python -m compileall -q src tests ui app.py
 ```
 
 ---
@@ -131,10 +140,44 @@ Agent-Bounty/
 ├── data/                         # Local database storage (.gitkeep only)
 ├── alembic.ini                   # Alembic configuration
 ├── pyproject.toml                # Project metadata and test configuration
+├── render.yaml                   # Render Blueprint deployment configuration
 ├── requirements.txt              # Production and test dependencies
 ├── BUILD_STATUS.md               # Session-by-session audit log
 └── README.md
 ```
+
+---
+
+## Deployment Options & Database Persistence
+
+AgentBounty provides a validated [render.yaml](render.yaml) blueprint specification for deployment.
+
+> [!IMPORTANT]
+> **Render Disk & Migration Timing Invariant:** Persistent disks on Render are only mounted at application container runtime, **not during the build phase**. Therefore, `alembic upgrade head` is intentionally executed at application startup by `ui/bootstrap.py`, and strictly omitted from `buildCommand` (`pip install -r requirements.txt`).
+
+Two deployment configurations are supported:
+
+### 1. Configuration A: Free Demonstration (Zero-Cost / Ephemeral)
+- **Target:** Render Free Web Service.
+- **Persistent Disk:** None (omit `disk:` block in `render.yaml`).
+- **Persistence Behavior:** The SQLite database (`./data/agentbounty.db`) resides on the container's ephemeral filesystem. Database tables and fleet agents are initialized at runtime via `ui/bootstrap.py`. Data resets upon container sleep, restart, or redeploy.
+- **Mode:** Full offline `DEMO_MODE=true` with simulated payments.
+
+### 2. Configuration B: Persistent SQLite Demonstration (Paid Tier)
+- **Target:** Render Web Service with Persistent Disk (Starter or higher).
+- **Persistent Disk:** Configured in `render.yaml` with mount path `/opt/render/project/src/data` (1 GB).
+- **Persistence Behavior:** SQLite database persists across application restarts and redeployments. Migrations run automatically at runtime once the disk is mounted.
+- **Mode:** Full offline `DEMO_MODE=true` with simulated payments.
+
+*Note: No actual remote cloud deployment was performed; configuration is prepared and validated locally.*
+
+---
+
+## Verification Terminology & Semantic Correctness
+
+- **Machine-Checkable Criteria:** The decoupled `VerificationEngine` evaluates deterministically checkable criteria (`contains:`, `not_contains:`, `min_words:`, `max_words:`, `has_section:`).
+- **Evaluation Accuracy:** When all machine criteria pass, the system reports **"100% of machine-checkable criteria passed"**. This indicates compliance with specified syntactic rules, not exhaustive semantic correctness or domain truth.
+- **Human Review Safeguard:** Ambiguous, natural-language, or unsupported criteria are never assumed to have passed; they automatically place the task into `NEEDS_HUMAN_REVIEW` (holding the task in `IN_REVIEW`), preventing payment authorization until a human operator intervenes.
 
 ---
 
