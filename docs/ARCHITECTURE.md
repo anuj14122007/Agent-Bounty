@@ -45,6 +45,19 @@ Agent-Bounty/
 ├── src/
 │   └── agentbounty/
 │       ├── __init__.py
+│       ├── agents/               # Specialist workers, registry, and manager agent
+│       │   ├── __init__.py
+│       │   ├── base.py
+│       │   ├── manager.py
+│       │   ├── profiles.py
+│       │   ├── registry.py
+│       │   └── workers/
+│       │       ├── __init__.py
+│       │       ├── base.py
+│       │       ├── code_assistant.py
+│       │       ├── creative_writer.py
+│       │       ├── data_analyst.py
+│       │       └── researcher.py
 │       ├── config/               # Pydantic Settings & environment validation
 │       │   ├── __init__.py
 │       │   └── settings.py
@@ -59,20 +72,34 @@ Agent-Bounty/
 │       │   ├── models.py
 │       │   ├── database.py
 │       │   └── repositories.py
+│       ├── providers/            # Generation providers & protocols
+│       │   ├── __init__.py
+│       │   ├── demo_provider.py
+│       │   └── protocols.py
+│       ├── services/             # Application orchestration & communication services
+│       │   ├── __init__.py
+│       │   ├── agent_communication.py
+│       │   ├── task_orchestration.py
+│       │   └── verification.py
 │       └── exceptions.py         # Standardized application exception hierarchy
 ├── migrations/                   # Alembic database migrations
 │   ├── env.py
 │   ├── script.py.mako
 │   └── versions/
 │       └── 001_initial_schema.py
-├── tests/                        # Automated unit and integration tests
+├── tests/                        # Automated unit and integration tests (108 tests)
 │   ├── conftest.py
+│   ├── test_agents.py
+│   ├── test_communication.py
 │   ├── test_config.py
 │   ├── test_database.py
 │   ├── test_enums.py
 │   ├── test_models.py
 │   ├── test_money.py
-│   └── test_repositories.py
+│   ├── test_orchestration.py
+│   ├── test_repositories.py
+│   ├── test_schemas.py
+│   └── test_verification.py
 ├── docs/                         # Architecture, product specs, state machines, security
 │   ├── ARCHITECTURE.md
 │   ├── PRODUCT_SPEC.md

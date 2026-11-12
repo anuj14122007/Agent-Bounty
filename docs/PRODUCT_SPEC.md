@@ -59,8 +59,10 @@ The platform operates across seven sequential stages:
 ### Stage 4: Independent Verification
 - An isolated, deterministic **Verification Engine** (decoupled from the Worker Agent) ingests the `WorkerResult` and evaluates it against each acceptance criterion.
 - The engine computes a verification score (0–100), enumerates passed criteria, lists any failed criteria, and generates an explanatory evaluation report.
-- Outcomes include `PASSED`, `FAILED`, or `NEEDS_HUMAN_REVIEW`.
-- If passed, the task transitions to `AWAITING_AUTHORIZATION`.
+- Outcomes include:
+  - `PASSED`: All criteria are machine-checkable and satisfied. Task transitions to `APPROVED` and then `AWAITING_AUTHORIZATION`. The associated Bounty transitions to `AWARDED`.
+  - `FAILED`: One or more machine-checkable criteria failed. Task transitions to `REJECTED`. The associated Bounty transitions to `CANCELLED`.
+  - `NEEDS_HUMAN_REVIEW`: Ambiguous or subjective criteria cannot be deterministically verified. Task remains held in `IN_REVIEW`. The Bounty remains `RESERVED` pending an explicit decision.
 
 ### Stage 5: Human Financial Authorization Gate
 - A human reviewer reviews the task, the Worker's deliverable, and the Verification Engine's report.

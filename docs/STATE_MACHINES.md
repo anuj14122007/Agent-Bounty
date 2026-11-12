@@ -12,14 +12,14 @@ flowchart TD
     IN_PROGRESS -->|Worker Submits Deliverable| SUBMITTED
     SUBMITTED -->|Verification Engine Evaluation| IN_REVIEW
     IN_REVIEW -->|Verification Fails| REJECTED
-    IN_REVIEW -->|Verification Needs Attention| REJECTED
+    IN_REVIEW -->|Verification Needs Human Review| IN_REVIEW
     IN_REVIEW -->|Verification Passes| APPROVED
     APPROVED -->|Awaiting Human Review| AWAITING_AUTHORIZATION
     AWAITING_AUTHORIZATION -->|Human Rejects| REJECTED
     AWAITING_AUTHORIZATION -->|Human Authorizes Payout| PAYMENT_PENDING
     PAYMENT_PENDING -->|Payment Confirmed| COMPLETED
     PAYMENT_PENDING -->|Payment Fails| FAILED
-    
+
     OPEN -->|Human / System Cancels| CANCELLED
     ASSIGNED -->|Human / System Cancels| CANCELLED
     DRAFT -->|Discard| CANCELLED
@@ -34,6 +34,7 @@ flowchart TD
 | `IN_PROGRESS` | `SUBMITTED` | Deliverable uploaded | Worker Agent |
 | `SUBMITTED` | `IN_REVIEW` | Verification begins | Verification Engine |
 | `IN_REVIEW` | `REJECTED` | Verification criteria failed | Independent Verification Engine |
+| `IN_REVIEW` | `IN_REVIEW` | Verification requires human review | Independent Verification Engine (Ambiguous/Subjective Criteria) |
 | `IN_REVIEW` | `APPROVED` | All criteria satisfied (100% / passed) | Independent Verification Engine |
 | `APPROVED` | `AWAITING_AUTHORIZATION` | Enters financial review queue | Automated Pipeline Gate |
 | `AWAITING_AUTHORIZATION`| `PAYMENT_PENDING` | Payment authorization granted | **Explicit Human Authorization** (Mandatory) |
@@ -51,11 +52,12 @@ A task possesses at most one bounty. The bounty coordinates monetary liability.
 ```mermaid
 flowchart LR
     OPEN -->|Task Assigned| RESERVED
-    RESERVED -->|Deliverable Verified| AWARDED
+    RESERVED -->|Deliverable Verified PASSED| AWARDED
+    RESERVED -->|Deliverable FAILED or Cancelled| CANCELLED
+    RESERVED -->|Needs Human Review| RESERVED
     AWARDED -->|Human Authorizes| PAYMENT_PENDING
     PAYMENT_PENDING -->|Payout Succeeded| PAID
     OPEN -->|Task Cancelled| CANCELLED
-    RESERVED -->|Task Cancelled/Failed| CANCELLED
     AWARDED -->|Authorization Denied| CANCELLED
 ```
 

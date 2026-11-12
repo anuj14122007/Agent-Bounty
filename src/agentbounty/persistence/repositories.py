@@ -59,14 +59,18 @@ class AgentRepository(BaseRepository):
         description: str,
         capabilities: list[str] | None = None,
         status: AgentStatus = AgentStatus.ACTIVE,
+        id: str | None = None,
     ) -> Agent:
-        agent = Agent(
-            name=name,
-            role=role,
-            description=description,
-            capabilities=capabilities or [],
-            status=status,
-        )
+        kwargs: dict[str, Any] = {
+            "name": name,
+            "role": role,
+            "description": description,
+            "capabilities": capabilities or [],
+            "status": status,
+        }
+        if id is not None:
+            kwargs["id"] = id
+        agent = Agent(**kwargs)
         self.session.add(agent)
         self.session.flush()
         return agent

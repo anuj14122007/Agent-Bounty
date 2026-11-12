@@ -22,9 +22,9 @@ The platform allows human users to submit tasks with verifiable acceptance crite
 
 ---
 
-## Current Implementation Status (Session 1)
+## Current Implementation Status (Session 2 Completed)
 
-Session 1 establishes the architectural foundation:
+Session 1 established the foundation and Session 2 implemented the autonomous agent runtime:
 
 - [x] **Modular Monolith Foundation:** Clean package structure under `src/agentbounty/`.
 - [x] **Validated Configuration:** Pydantic Settings supporting offline `DEMO_MODE`, strict safety limits (`MAX_BOUNTY_USD`), and credential masking.
@@ -33,19 +33,20 @@ Session 1 establishes the architectural foundation:
 - [x] **SQLite & Relational Integrity:** Enforced SQLite foreign keys (`PRAGMA foreign_keys=ON`), unique constraints (1:1 task bounty, payment idempotency), and non-negative money check constraints.
 - [x] **Database Migrations:** Configured Alembic environment with initial migration (`001_initial_schema.py`) tested against fresh databases.
 - [x] **Append-Only Auditing:** Dedicated `AuditEventRepository` strictly prohibiting in-place edits or deletions.
-- [x] **Architecture Contracts & Documentation:** Full specifications in `docs/ARCHITECTURE.md`, `docs/PRODUCT_SPEC.md`, `docs/STATE_MACHINES.md`, and `docs/SECURITY.md`.
-- [x] **Automated Test Suite:** 65 passing pytest unit, schema, and integration tests verifying all acceptance criteria.
+- [x] **Agent Registry & Specialist Workers:** Deterministic profiles for Creative Writer, Research Assistant (explicitly offline), Data Analyst (exact mathematical computation), and Code Assistant (safe static code drafting, zero arbitrary execution).
+- [x] **Manager Agent Delegation:** Capability analysis, deterministic worker selection (match score and lexicographical tie-breaking), and bounty allocation bounded by `MAX_BOUNTY_USD`. Manager authority strictly forbids approving verifications or executing payments.
+- [x] **Decoupled Verification Engine:** Independent criteria verification (`contains:`, `not_contains:`, `min_words:`, `max_words:`, `min_chars:`, `max_chars:`, `has_section:`). Ambiguous/unsupported criteria hold task for human review. Workers cannot verify their own results.
+- [x] **Task Orchestration & State Machine Enforcement:** End-to-end multi-stage pipeline coordinating task transitions, bounty reservation/award/cancellation, and persistent communication messages.
+- [x] **Automated Test Suite:** 108 passing pytest unit, schema, and integration tests verifying all Session 1 & 2 requirements.
 
 ---
 
 ## What Is NOT Implemented Yet
 
-As per the strict scope boundary of Session 1, the following are intentionally deferred to future sessions:
-- Streamlit interactive UI dashboard and human approval panel (Session 3/4).
-- Manager Agent autonomous decision logic and LLM orchestration (Session 2).
-- Worker Agent execution runtimes and tool invocation (Session 2).
-- Automated criteria verification algorithms (Session 2).
-- External network integration with PayPal Sandbox REST APIs (Session 3).
+As per the strict scope boundaries:
+- Human payment authorization service (`PaymentAuthorizationService`) and payment execution (Session 3).
+- Payment provider implementations (MockPaymentProvider, PayPal Sandbox REST integration) (Session 3).
+- Streamlit interactive UI dashboard and human approval panel (Session 4).
 - Live real-money transactions (strictly excluded from product scope).
 
 ---
@@ -109,14 +110,17 @@ python -m compileall -q src tests
 Agent-Bounty/
 ├── src/
 │   └── agentbounty/
+│       ├── agents/               # Specialist workers, registry, and manager agent
 │       ├── config/               # Application settings and environment validation
 │       ├── domain/               # Enums, Money value object, Pydantic schemas
 │       ├── persistence/          # SQLAlchemy models, SQLite engine, Repositories
+│       ├── providers/            # Offline demo generation providers
+│       ├── services/             # Orchestration, verification, and communication services
 │       └── exceptions.py         # Standardized exception hierarchy
 ├── migrations/                   # Alembic schema migrations
-├── tests/                        # 65 unit, schema, and integration tests
+├── tests/                        # 108 unit, schema, and integration tests
 ├── docs/                         # Architectural & operational documentation
-│   ├── ARCHITECTURE.md           # Modular monolith design and future contracts
+│   ├── ARCHITECTURE.md           # Modular monolith design and layer contracts
 │   ├── PRODUCT_SPEC.md           # Product workflows and safeguards
 │   ├── STATE_MACHINES.md         # Lifecycle states and transition gates
 │   └── SECURITY.md               # Financial controls, secrets, and idempotency

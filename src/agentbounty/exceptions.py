@@ -27,3 +27,19 @@ class InvalidStateTransitionError(AgentBountyError):
 
 class AppendOnlyViolationError(AgentBountyError):
     """Raised when an operation attempts to modify or delete append-only historical records."""
+
+
+class NoEligibleWorkerError(AgentBountyError):
+    """Raised when no active worker agent satisfies the required task capabilities."""
+
+
+class BountyLimitExceededError(AgentBountyError):
+    """Raised when a proposed bounty violates the maximum allowed bounty limit."""
+
+
+class WorkerExecutionError(AgentBountyError):
+    """Raised when an error occurs during worker task execution."""
+
+
+class VerificationEngineError(AgentBountyError):
+    """Raised when an error occurs during acceptance criteria verification."""
