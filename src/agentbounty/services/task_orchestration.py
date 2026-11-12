@@ -64,7 +64,7 @@ _ALLOWED_BOUNTY_TRANSITIONS: dict[BountyStatus, set[BountyStatus]] = {
     BountyStatus.OPEN: {BountyStatus.RESERVED, BountyStatus.CANCELLED},
     BountyStatus.RESERVED: {BountyStatus.AWARDED, BountyStatus.CANCELLED},
     BountyStatus.AWARDED: {BountyStatus.PAYMENT_PENDING, BountyStatus.CANCELLED},
-    BountyStatus.PAYMENT_PENDING: {BountyStatus.PAID, BountyStatus.CANCELLED},
+    BountyStatus.PAYMENT_PENDING: {BountyStatus.PAID, BountyStatus.CANCELLED, BountyStatus.AWARDED},
     BountyStatus.PAID: set(),
     BountyStatus.CANCELLED: set(),
 }

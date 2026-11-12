@@ -30,21 +30,27 @@ Floating-point arithmetic (IEEE 754 `float`) introduces binary rounding artifact
 
 Autonomous agents (Manager or Worker) have **zero authority to disburse funds**.
 
-1. **Discrete Entity:** Authorizations are tracked as independent persistence entities (`PaymentAuthorization`), not simple boolean flags on a task or transaction.
-2. **Immutable Traceability:** Every authorization records:
-   - Authorizing actor identity (e.g., human operator ID).
+1. **Role Check vs. Identity Authentication (Important Boundary):**
+   - The application enforces that only `ActorContext.actor_type == "HUMAN"` may authorize, reject, or revoke payouts.
+   - **Crucial Distinction:** This is an application-layer role check, **NOT independent identity authentication**. The `actor_id` (e.g. `"operator"`, `"founder"`) is supplied by the caller or UI; there is no cryptographic PKI, OAuth session, password authentication, or identity proofing in this demo architecture.
+   - In Session 4, the Streamlit user interface must require an explicit, un-automated human confirmation action (button click) to submit an authorization.
+2. **Discrete Entity:** Authorizations are tracked as independent persistence entities (`PaymentAuthorization`), not simple boolean flags on a task or transaction.
+3. **Immutable Traceability:** Every authorization records:
+   - Authorizing actor attribution identifier (`actor_id`).
    - Timestamp in UTC.
    - Exact authorized amount in minor units and currency.
    - Associated task and bounty foreign keys.
-3. **Pre-condition for Execution:** The payment subsystem will refuse execution if no valid `PaymentAuthorization` with `decision == AUTHORIZED` exists.
+4. **Pre-condition for Execution:** The payment subsystem will refuse execution if no valid `PaymentAuthorization` with `decision == AUTHORIZED` exists. Any attempt by `MANAGER`, `WORKER`, or `SYSTEM` actors raises `UnauthorizedActorError`.
 
 ---
 
 ## 4. Idempotency & Replay Prevention
 
-1. **Unique Idempotency Keys:** Every `PaymentTransaction` must possess a unique `idempotency_key` (e.g. UUIDv4 or SHA-256 hash derived from task ID + authorization ID).
-2. **Database Constraint:** A unique database index on `payment_transactions.idempotency_key` guarantees that the database engine rejects duplicate transactions even under race conditions.
-3. **Application Defense:** The `PaymentTransactionRepository` checks for existing keys before insertion and raises `DuplicateEntityError`.
+1. **Deterministic Idempotency Keys:** Every `PaymentTransaction` derives a deterministic `idempotency_key` via SHA-256 hash of `f"{task_id}:{authorization_id}"`.
+2. **Database Constraint:** A unique database index on `payment_transactions.idempotency_key` guarantees that the database engine rejects duplicate transactions even under concurrent requests.
+3. **Application Defense:** The `PaymentExecutionService` checks for existing transactions before invoking providers:
+   - Transactions in `SUCCEEDED`, `PENDING`, `SUBMITTED`, `UNKNOWN`, or `CREATED` return the authoritative record with `is_duplicate=True` without duplicate provider execution.
+   - Terminal `FAILED` transactions cannot be re-executed under the same authorization (`DuplicatePaymentError`), requiring human review and explicit re-authorization.
 
 ---
 
@@ -54,14 +60,15 @@ Autonomous agents (Manager or Worker) have **zero authority to disburse funds**.
 |---|---|---|---|
 | **Primary Use** | Local development, CI/CD, offline demos | Integration testing against PayPal Sandbox | Real money payouts |
 | **Allowed in DEMO_MODE?** | **YES** (Default) | NO | **FORBIDDEN** |
-| **External API Calls?** | NONE (100% offline) | PayPal Sandbox REST API | N/A |
+| **External API Calls?** | NONE (100% offline) | PayPal Sandbox REST API (Mocked in tests) | N/A |
 | **External Reference** | `None` (Never fabricated) | Real PayPal Payout Batch ID | N/A |
 | **Configuration Guard** | Default | `PAYPAL_PAYOUTS_ENABLED=true`, `PAYPAL_ENVIRONMENT=sandbox` | **Strictly blocked at startup** |
 
-### Critical Invariant:
-A simulated transaction is explicitly recorded with `execution_mode = SIMULATED`. The system **never** fabricates a synthetic PayPal transaction ID or pretends a mock payment went through an external processor.
-
----
+### Critical Invariants:
+1. **No Fabricated References:** A simulated transaction is explicitly recorded with `execution_mode = SIMULATED`. The system **never** fabricates synthetic PayPal transaction IDs or pretends a mock payment went through an external processor.
+2. **PayPal Sender Country Limitation:** Under PayPal Payouts documentation, accounts registered in India (`IN`) are limited to "Receive and withdraw" and cannot send payouts. The `paypal_sender_country` setting provides an advisory fail-closed check that rejects `IN`.
+   - **Limitation Notice:** A self-declared environment variable (`PAYPAL_SENDER_COUNTRY`) is not proof of the merchant account's actual registered country or PayPal-verified eligibility. Server-side account eligibility is determined solely by PayPal's backend.
+3. **No Live Payments:** Live endpoints, real funds, and live credentials are fundamentally excluded from the architecture.
 
 ## 6. Secrets Management
 

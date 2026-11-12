@@ -7,7 +7,7 @@
 ### Core Defining Principle
 > **Controlled autonomous delegation with human-controlled financial authorization.**
 
-Autonomous agents are empowered to analyze, decompose, delegate, implement, and verify tasks within tightly bounded computational and monetary constraints. However, **no financial disbursement can occur without an explicit, cryptographically traceable human authorization**.
+Autonomous agents are empowered to analyze, decompose, delegate, implement, and verify tasks within tightly bounded computational and monetary constraints. However, **no financial disbursement can occur without an explicit, application-enforced human authorization** (verified via `ActorContext.is_human()` role checking in the service layer and explicit human confirmation in the UI; no independent identity authentication or PKI is claimed).
 
 ---
 
@@ -34,7 +34,7 @@ The platform operates across seven sequential stages:
      [Approved]                                [Rejected]
           │                                         │
           ▼                                         ▼
-[6. Payment Processing (Mock/Sandbox)]    [Task Rework / Cancellation]
+[6. Payment Processing (Mock/Sandbox)]    [Task Rejection / Cancellation]
           │
           ▼
 [7. Append-Only Audit Logging & Ledger]
@@ -68,19 +68,23 @@ The platform operates across seven sequential stages:
 - A human reviewer reviews the task, the Worker's deliverable, and the Verification Engine's report.
 - The human makes an explicit decision:
   - `AUTHORIZED`: The specified amount (up to the bounty cap) is approved for payout.
-  - `REJECTED`: Deliverable does not meet standards; task is marked `REJECTED` or returned for revision.
-  - `REVOKED`: A previously granted authorization is rescinded prior to execution.
-- An immutable `PaymentAuthorization` record is created, capturing the authorizing actor's identifier, decision, amount in minor units, and timestamp.
+  - `REJECTED`: Deliverable does not meet standards; task is marked `REJECTED` and bounty `CANCELLED`.
+  - `REVOKED`: A previously granted authorization is rescinded prior to payment submission.
+- An immutable `PaymentAuthorization` record is created, capturing the authorizing actor's identifier (`actor_id`), decision, amount in minor units, and timestamp.
+- **Security Boundary:** `actor_type == "HUMAN"` is a role check, not independent identity authentication. The UI in Session 4 must require an explicit, un-automated human confirmation action.
 
 ### Stage 6: Payment Processing
 - The payment subsystem ingests the approved authorization.
 - In **DEMO mode**, payment is processed by `MockPaymentProvider` in `SIMULATED` execution mode:
   - Simulated transactions complete instantaneously and deterministically.
-  - No external provider reference is fabricated.
+  - Zero external provider reference is fabricated (`external_reference is None`).
   - The transaction is clearly marked as simulated.
-- In **Sandbox mode**, payment is optionally processed against PayPal Sandbox Payouts.
-- Idempotency keys prevent double execution or duplicate disbursements.
-- The transaction record transitions: `CREATED` → `SUBMITTED` → `SUCCEEDED` (or `FAILED`).
+- In **Sandbox mode**, payment is optionally processed against PayPal Sandbox Payouts:
+  - Requires `PAYPAL_PAYOUTS_ENABLED=true` and `PAYPAL_ENVIRONMENT=sandbox`.
+  - Fails closed if sender country is India (`IN`), per PayPal Payouts limitations.
+  - Reconciliation inspects individual item `transaction_status`, never assuming success from batch header alone.
+- Idempotency keys (`task_id:authorization_id`) prevent double execution or duplicate disbursements.
+- The transaction record transitions: `CREATED` → `SUBMITTED` (persisted pre-provider call) → `SUCCEEDED` (Task `COMPLETED`, Bounty `PAID`), `FAILED` (Task `FAILED`, Bounty `AWARDED`), or `UNKNOWN` (Task & Bounty `PAYMENT_PENDING` for reconciliation).
 
 ### Stage 7: Append-Only Audit History
 - Every transition, message, result, verification report, human decision, and transaction is captured as an immutable `AuditEvent`.

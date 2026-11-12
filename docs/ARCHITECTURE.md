@@ -72,6 +72,18 @@ Agent-Bounty/
 │       │   ├── models.py
 │       │   ├── database.py
 │       │   └── repositories.py
+│       ├── payments/             # Payment infrastructure, authorization gate, providers & ledger
+│       │   ├── __init__.py
+│       │   ├── authorization.py
+│       │   ├── execution.py
+│       │   ├── ledger.py
+│       │   ├── protocols.py
+│       │   ├── reconciliation.py
+│       │   ├── schemas.py
+│       │   └── providers/
+│       │       ├── __init__.py
+│       │       ├── mock.py
+│       │       └── paypal_sandbox.py
 │       ├── providers/            # Generation providers & protocols
 │       │   ├── __init__.py
 │       │   ├── demo_provider.py
@@ -87,16 +99,23 @@ Agent-Bounty/
 │   ├── script.py.mako
 │   └── versions/
 │       └── 001_initial_schema.py
-├── tests/                        # Automated unit and integration tests (108 tests)
+├── tests/                        # Automated unit and integration tests (155 tests)
 │   ├── conftest.py
 │   ├── test_agents.py
 │   ├── test_communication.py
 │   ├── test_config.py
 │   ├── test_database.py
 │   ├── test_enums.py
+│   ├── test_mock_provider.py
 │   ├── test_models.py
 │   ├── test_money.py
 │   ├── test_orchestration.py
+│   ├── test_payment_authorization.py
+│   ├── test_payment_execution.py
+│   ├── test_payment_ledger.py
+│   ├── test_payment_reconciliation.py
+│   ├── test_payment_workflow.py
+│   ├── test_paypal_sandbox_provider.py
 │   ├── test_repositories.py
 │   ├── test_schemas.py
 │   └── test_verification.py
@@ -138,30 +157,43 @@ To prevent interface drift during subsequent sessions, the boundaries and contra
   - *Expected Output:* `VerificationCreate(status=..., score=..., passed_criteria=..., failed_criteria=..., explanation=...)`.
 
 ### 4.2. Payment Subsystem
-- **PaymentProvider Protocol:**
+- **PaymentProvider Protocol (`agentbounty.payments.protocols`):**
   ```python
   class PaymentProvider(Protocol):
-      def execute_payout(
-          self,
-          authorization_id: str,
-          task_id: str,
-          bounty_id: str,
-          amount_minor_units: int,
-          currency: str,
-          idempotency_key: str,
-      ) -> PaymentTransactionResult: ...
+      @property
+      def provider_name(self) -> str: ...
+      @property
+      def execution_mode(self) -> PaymentExecutionMode: ...
+      def submit_payout(self, request: PayoutRequest) -> PayoutResult: ...
+      def check_payout_status(self, payout_id: str, idempotency_key: str) -> PayoutResult: ...
   ```
-- **MockPaymentProvider (DEMO Mode):**
-  - Fully offline, deterministic payout execution.
+- **MockPaymentProvider (`agentbounty.payments.providers.mock`):**
+  - Fully offline, deterministic payout execution for `DEMO_MODE=true`.
   - Sets `execution_mode = PaymentExecutionMode.SIMULATED`.
-  - Never fabricates external transaction IDs or fake PayPal hashes.
-- **PayPalSandboxProvider (Optional Sandbox Mode):**
-  - Communicates exclusively with PayPal REST Sandbox endpoint (`/v1/payments/payouts`).
+  - Invariant: `external_reference is None` (never fabricates external transaction IDs or fake PayPal hashes).
+  - Configurable simulation parameters for testing timeout, pending, or failure scenarios.
+- **PayPalSandboxProvider (`agentbounty.payments.providers.paypal_sandbox`):**
+  - Communicates exclusively with PayPal REST Sandbox endpoint (`https://api-m.sandbox.paypal.com/v1/payments/payouts`).
   - Sets `execution_mode = PaymentExecutionMode.SANDBOX`.
   - Captures PayPal batch payout ID in `external_reference`.
-  - Prohibited in `DEMO_MODE=true`.
-- **PaymentAuthorizationService:**
-  - Validates that an authorized `PaymentAuthorization` exists with `decision == AUTHORIZED` before triggering payment provider execution.
+  - Prohibited in `DEMO_MODE=true` or when `PAYPAL_PAYOUTS_ENABLED=false`.
+  - Fails closed with `IneligibleSenderCountryError` if `paypal_sender_country == "IN"` per PayPal Payouts documentation.
+  - Supports dependency-injected `HttpTransport` for test isolation with zero live network calls.
+- **PaymentAuthorizationService (`agentbounty.payments.authorization`):**
+  - Enforces mandatory `HUMAN` actor verification for all authorization decisions.
+  - Validates preconditions: Task must be `AWAITING_AUTHORIZATION`, Bounty `AWARDED`, Verification `PASSED`.
+  - Enforces exact amount match, currency match, and configuration ceiling (`MAX_BOUNTY_USD`).
+  - Supports authorization `AUTHORIZED`, `REJECTED`, and pre-submission `REVOKED`.
+- **PaymentExecutionService (`agentbounty.payments.execution`):**
+  - Enforces mandatory `HUMAN` actor context.
+  - Computes deterministic SHA-256 idempotency key: `task_id:authorization_id`.
+  - Returns existing authoritative transaction without re-calling provider if already submitted/processed (`is_duplicate=True`).
+  - Persists `CREATED -> SUBMITTED` boundary and task/bounty `PAYMENT_PENDING` before invoking payment provider.
+  - Transitions to `SUCCEEDED` (Task `COMPLETED`, Bounty `PAID`), `FAILED` (Task `FAILED`, Bounty `AWARDED`), or `UNKNOWN`.
+- **PaymentReconciliationService (`agentbounty.payments.reconciliation`):**
+  - Idempotent status resolution for `PENDING` and `UNKNOWN` transactions.
+- **TransactionLedgerService (`agentbounty.payments.ledger`):**
+  - Indexed queries across payment transactions and consolidated task payment histories.
 
 ### 4.3. UI / Presentation Subsystem (Streamlit)
 - **Human Approval Panel:**

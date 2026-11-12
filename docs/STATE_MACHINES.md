@@ -57,6 +57,7 @@ flowchart LR
     RESERVED -->|Needs Human Review| RESERVED
     AWARDED -->|Human Authorizes| PAYMENT_PENDING
     PAYMENT_PENDING -->|Payout Succeeded| PAID
+    PAYMENT_PENDING -->|Payout Failed| AWARDED
     OPEN -->|Task Cancelled| CANCELLED
     AWARDED -->|Authorization Denied| CANCELLED
 ```
@@ -99,31 +100,41 @@ The `PaymentAuthorization` entity preserves an immutable record of financial aut
 flowchart LR
     PENDING -->|Human Approves| AUTHORIZED
     PENDING -->|Human Disapproves| REJECTED
-    AUTHORIZED -->|Pre-execution Revocation| REVOKED
+    AUTHORIZED -->|Pre-submission Revocation| REVOKED
 ```
 
 ### Rules:
 - An authorization record must specify the exact amount in minor units and currency.
+- **Actor Role Invariant:** Authorization and revocation decisions require `ActorContext.actor_type == "HUMAN"`. This is an application-level role check, not independent identity authentication.
+- Pre-submission revocation is allowed if no transaction has commenced submission (`SUBMITTED`). Once payment submission has started, revocation is prohibited (`InvalidStateTransitionError`).
 - Once created, a `PaymentAuthorization` cannot be deleted or mutated.
-- Revocation creates a distinct revocation event / record, ensuring complete forensic traceability.
 
 ---
 
 ## 5. Payment Transaction State Machine
 
-Payment transactions track the payment execution lifecycle through the chosen provider (`MockPaymentProvider` or `PayPalSandboxProvider`).
+Payment transactions track the payment execution lifecycle through the configured provider (`MockPaymentProvider` or `PayPalSandboxProvider`).
 
 ```mermaid
 flowchart LR
-    CREATED -->|Submitted to Provider| SUBMITTED
-    SUBMITTED -->|Async Gateway Processing| PENDING
+    CREATED -->|Persisted Pre-Call| SUBMITTED
+    SUBMITTED -->|Provider Processing| PENDING
     SUBMITTED -->|Immediate Sync Success| SUCCEEDED
-    PENDING -->|Provider Webhook Confirmed| SUCCEEDED
-    SUBMITTED -->|Gateway Error / Rejection| FAILED
-    PENDING -->|Gateway Timeout / Failure| FAILED
-    SUBMITTED -->|Unresolved Network Failure| UNKNOWN
+    SUBMITTED -->|Provider Rejection| FAILED
+    SUBMITTED -->|Network Timeout / Ambiguous| UNKNOWN
+    PENDING -->|Reconciliation Success| SUCCEEDED
+    PENDING -->|Reconciliation Failure| FAILED
+    UNKNOWN -->|Reconciliation Success| SUCCEEDED
+    UNKNOWN -->|Reconciliation Failure| FAILED
 ```
 
-### Idempotency Protection:
-- Every `PaymentTransaction` requires a unique `idempotency_key`.
-- If an operation is retried with an existing key, the transaction repository rejects duplicate processing with `DuplicateEntityError`.
+### Idempotency & Duplicate Handling:
+- **Deterministic Key:** `idemp_{sha256(task_id:authorization_id)[:32]}` enforced via a database unique constraint.
+- **Duplicate Execution Behavior:**
+  - `SUCCEEDED`, `PENDING`, `SUBMITTED`, `UNKNOWN`, `CREATED`: Returns the authoritative existing transaction (`is_duplicate=True`) without calling the provider.
+  - `FAILED`: Raises `DuplicatePaymentError`. Automatic silent retries are strictly forbidden. Resolution requires human intervention.
+- **State Changes by Outcome:**
+  - `SUCCEEDED`: Transaction `SUCCEEDED`, Task `COMPLETED`, Bounty `PAID`.
+  - `PENDING`: Transaction `PENDING`, Task `PAYMENT_PENDING`, Bounty `PAYMENT_PENDING`.
+  - `UNKNOWN`: Transaction `UNKNOWN`, Task `PAYMENT_PENDING`, Bounty `PAYMENT_PENDING`.
+  - `FAILED`: Transaction `FAILED`, Task `FAILED`, Bounty reverts to `AWARDED`.

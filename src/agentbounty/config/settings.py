@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     paypal_client_id: str | None = None
     paypal_client_secret: str | None = None
 
+    # Sender account country (default 'US'). India ('IN') is ineligible for sending payouts.
+    paypal_sender_country: str = "US"
+
+    # HTTP timeout for external provider calls (seconds)
+    paypal_timeout_seconds: float = 10.0
+
     # Maximum allowed bounty per task (USD Decimal). Default: $5.00
     max_bounty_usd: Decimal = Field(default=Decimal("5.00"))
 

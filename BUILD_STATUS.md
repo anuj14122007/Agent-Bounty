@@ -149,18 +149,155 @@ Executed using `/workspaces/Agent-Bounty/.venv/bin/python`:
 
 ---
 
-### 5. Remaining Limitations (Scope Boundaries)
+### 5. Verified Checkpoints Prior to Session 3
 
-- **Human Payment Authorization:** `PaymentAuthorization` generation and human approval workflows are strictly deferred to Session 3.
-- **Payment Provider Integrations:** Execution of payouts via `MockPaymentProvider` or PayPal Sandbox is deferred to Session 3.
-- **User Interface:** Interactive Streamlit dashboard and human approval screens are deferred to Session 4.
+- **Session 1:** `dc0b5d8` (`feat: complete AgentBounty foundation`)
+- **Session 2:** `de865a3` (`feat: implement agent runtime and verification`)
 
 ---
 
-### 6. Session 3 Roadmap
+## Session 3: Payment Infrastructure, Human Authorization Gate, Idempotency & Transaction Ledger
+**Date:** 2026-11-12
+**Status:** Completed & Independently Verified (VERDICT: PASS)
+**Python Version:** Python 3.14.2
+**Virtual Environment:** `/workspaces/Agent-Bounty/.venv`
 
-1. Implement `PaymentAuthorizationService` with human authorization gate.
-2. Implement `MockPaymentProvider` for simulated offline payout execution.
-3. Implement optional `PayPalSandboxProvider` for PayPal REST sandbox payouts.
-4. Implement payment execution orchestration with strict idempotency key protection.
-5. Add unit and integration tests for payment authorization, provider execution, and double-spend rejection.
+### 1. Features Implemented & Verified
+
+1. **Financial Exception Hierarchy (`agentbounty.exceptions`):**
+   - 17 specialized financial and authorization exceptions deriving from `PaymentError`:
+     - Authorization guards: `InvalidAuthorizationError`, `UnauthorizedActorError`, `VerificationNotPassedError`, `BountyAmountMismatchError`, `BudgetExceededError`, `CurrencyMismatchError`.
+     - Execution & Idempotency: `DuplicatePaymentError`, `InvalidProviderConfigurationError`, `ProviderUnavailableError`, `ProviderAuthenticationError`, `ProviderRejectionError`, `ProviderTimeoutError`, `UncertainPaymentResultError`, `InvalidProviderResponseError`, `ReconciliationError`, `IneligibleSenderCountryError`.
+
+2. **Configuration & Safety Extensions (`agentbounty.config.settings`):**
+   - Added `paypal_sender_country: str = "US"` and `paypal_timeout_seconds: float = 10.0` with strict ISO 2-letter uppercase validation.
+   - Updated `.env.example` with clear documentation of country payout limitations and timeout controls.
+
+3. **Human Financial Authorization Gate (`agentbounty.payments.authorization`):**
+   - `PaymentAuthorizationService` strictly requires `ActorContext.actor_type == "HUMAN"`. Any attempt by `MANAGER`, `WORKER`, or `SYSTEM` to authorize or revoke payment raises `UnauthorizedActorError`.
+   - **Role Check vs. Authentication Boundary:** `actor_type == "HUMAN"` is an application-level role check, NOT independent identity authentication. The `actor_id` is supplied by the caller/UI; no external authentication, passwords, or PKI are claimed or implemented in this demo. The Streamlit UI in Session 4 must require an explicit, un-automated human confirmation action.
+   - Comprehensive precondition guards: Task must be `AWAITING_AUTHORIZATION`, associated Bounty must be `AWARDED`, latest Verification must be `PASSED`.
+   - Strict monetary integrity: Rejects float types, validates exact minor-unit match against the bounty, validates currency match, and enforces system safety ceiling (`MAX_BOUNTY_USD`).
+   - Conflict detection: Rejects authorization if an active authorization or submitted/succeeded transaction already exists.
+   - Decision support: Supports `AUTHORIZED` and `REJECTED` (which transitions Task to `REJECTED` and Bounty to `CANCELLED`).
+   - Revocation support: `revoke_authorization` allows rescinding an authorization before payment submission commences; once payment submission has started, revocation is strictly forbidden (`InvalidStateTransitionError`).
+   - Complete audit trail logging for all decisions.
+
+4. **Deterministic Offline Mock Payment Provider (`agentbounty.payments.providers.mock`):**
+   - `MockPaymentProvider` implements `PaymentProvider` protocol with zero external credentials or network access.
+   - Financial Safety Invariants: Always marks `execution_mode` as `SIMULATED`; strictly guarantees `external_reference is None` (zero fabricated external IDs).
+   - Deterministic status simulation: Configurable for testing `SUCCEEDED`, `FAILED`, `PENDING`, and `ProviderTimeoutError`. Tracks call count via `submission_count`.
+
+5. **Optional PayPal Sandbox Provider & Country Gate (`agentbounty.payments.providers.paypal_sandbox`):**
+   - `PayPalSandboxProvider` implements `PaymentProvider` protocol against PayPal Payouts REST v1 API strictly in sandbox mode (`api-m.sandbox.paypal.com`).
+   - **Country Payout Restriction Invariant:** Per PayPal documentation, Indian merchant accounts have "Receive and withdraw" capabilities, not "Send, receive, and withdraw". If `paypal_sender_country.upper() == "IN"`, provider immediately fails closed with `IneligibleSenderCountryError`.
+   - **Advisory Guard Limitation:** A self-declared local configuration string (`PAYPAL_SENDER_COUNTRY`) is not proof of the merchant account's registered country or PayPal-verified eligibility. Server-side account eligibility is determined solely by PayPal's backend.
+   - Disabled by default in `DEMO_MODE=true` and when `PAYPAL_PAYOUTS_ENABLED=false`.
+   - Injectable `HttpTransport` ensures complete testability with zero real network calls during testing.
+   - **Item-Level Status Reconciliation:** Inspects both batch header and individual item `transaction_status`. A successful batch header is never treated as proof that every item succeeded. If the item array is missing, the transaction remains `PENDING` rather than falsely inferring success. Ambiguous errors map to `UNKNOWN`.
+
+6. **Payment Execution Orchestration & Idempotency Boundary (`agentbounty.payments.execution`):**
+   - `PaymentExecutionService` enforces mandatory `HUMAN` actor context.
+   - **Deterministic Idempotency Key:** Derived via SHA-256 hash of `f"{task_id}:{authorization_id}"`.
+   - **Duplicate Call Protection:** If an existing transaction exists for the authorization:
+     - If `SUCCEEDED`, `PENDING`, `SUBMITTED`, `UNKNOWN`, or `CREATED`: Safely returns existing authoritative transaction (`is_duplicate=True`) without calling provider.
+     - If `FAILED`: Prevents re-execution under the same authorization (`DuplicatePaymentError`). Automatic silent retries are strictly forbidden. Resolution requires human review and explicit re-authorization.
+   - **Pre-Provider State Persistence:** Persists transaction in `PaymentStatus.SUBMITTED`, transitions Task to `PAYMENT_PENDING`, and transitions Bounty to `PAYMENT_PENDING` with a database flush *prior* to invoking the payment provider.
+   - **Uncertain Outcome Handling:** Timeouts or transport failures during provider execution transition transaction to `UNKNOWN`, leaving Task and Bounty in `PAYMENT_PENDING` for reconciliation. Blind retries are strictly avoided.
+   - **Definitive Failure Reversion:** When provider execution definitively fails, transaction is marked `FAILED`, Task transitions to `FAILED`, and Bounty reverts to `AWARDED` to allow re-submission or cancellation.
+
+7. **Payment Status Reconciliation Service (`agentbounty.payments.reconciliation`):**
+   - `PaymentReconciliationService` resolves `PENDING` or `UNKNOWN` transactions against provider status without resubmitting payouts.
+   - Transitions `SUCCEEDED` payouts to Task `COMPLETED` and Bounty `PAID`.
+   - Transitions `FAILED` payouts to Task `FAILED` and Bounty `AWARDED`.
+   - Idempotent: Calling reconciliation on an already `SUCCEEDED` transaction returns the existing state without mutating records.
+   - Never infers success from partial or ambiguous data.
+
+8. **Persistent Transaction Ledger Service (`agentbounty.payments.ledger`):**
+   - `TransactionLedgerService` provides read-only indexed queries:
+     - `get_transaction`, `get_transaction_or_raise`.
+     - `list_transactions` with database-level indexed filters: `status`, `provider_name`, `execution_mode`, `task_id`, `start_time`, `end_time`, `limit`, `offset`.
+     - `get_task_payment_history` consolidating all authorizations, transactions, and audit events for a task.
+
+---
+
+### 2. Verification Commands & Final Test Results
+
+Executed using `/workspaces/Agent-Bounty/.venv/bin/python`:
+
+1. **Bytecode Compilation Check:**
+   ```bash
+   python -m compileall -q src tests
+   ```
+   *Result:* Clean compilation with 0 syntax or type errors (Exit code: 0).
+
+2. **Pip Dependency Verification:**
+   ```bash
+   python -m pip check
+   ```
+   *Result:* `No broken requirements found.` (Exit code: 0).
+
+3. **Whitespace & Diff Verification:**
+   ```bash
+   git diff --check
+   ```
+   *Result:* Clean; 0 whitespace or formatting errors (Exit code: 0).
+
+4. **Pytest Automated Test Suite:**
+   ```bash
+   python -m pytest -v
+   ```
+   *Result:* **155 passed in 6.93s**, 0 warnings, 0 failures (Exit code: 0).
+
+   **Baseline Test Suite (Sessions 1 & 2): 108 tests**
+   - `tests/test_agents.py`: 17 tests
+   - `tests/test_communication.py`: 4 tests
+   - `tests/test_config.py`: 10 tests
+   - `tests/test_database.py`: 3 tests
+   - `tests/test_enums.py`: 6 tests
+   - `tests/test_models.py`: 5 tests
+   - `tests/test_money.py`: 11 tests — Decimal precision, float rejection, integer minor-unit conversions and currency validation.
+   - `tests/test_orchestration.py`: 14 tests
+   - `tests/test_repositories.py`: 8 tests
+   - `tests/test_schemas.py`: 22 tests
+   - `tests/test_verification.py`: 8 tests
+
+   **New Session 3 Suite (Payment Infrastructure & Ledger): 47 tests**
+   - `tests/test_mock_provider.py`: 5 tests — Deterministic simulated payouts, zero external references, and timeout simulation.
+   - `tests/test_payment_authorization.py`: 13 tests (11 methods; 1 parameterized into 3 actor tests) — Human role check, budget ceilings, exact amount/currency match, rejection, and revocation.
+   - `tests/test_payment_execution.py`: 8 tests — Pre-provider persistence, idempotency key derivation, failure reversion, and duplicate handling.
+   - `tests/test_payment_ledger.py`: 3 tests — Indexed query filters, pagination, and consolidated task payment history.
+   - `tests/test_payment_reconciliation.py`: 5 tests — Safe resolution of PENDING and UNKNOWN states, idempotency.
+   - `tests/test_payment_workflow.py`: 3 tests — End-to-end multi-phase workflow integration.
+   - `tests/test_paypal_sandbox_provider.py`: 10 tests — Sandbox boundaries, India country check, item-level reconciliation, fake transport isolation.
+
+   **Grand Total:** **155 passed** (108 baseline + 47 Session 3).
+
+---
+
+### 3. Verified Capabilities & Critical Boundaries
+
+- [x] **Strict Separation of Agent Intelligence and Payment Authority:** Manager and Worker agents cannot authorize or execute payments (`UnauthorizedActorError`).
+- [x] **Explicit Human Authorization Requirement:** Payout authorizations and executions require `ActorContext(actor_type="HUMAN")`.
+- [x] **Offline DEMO Mode Financial Invariant:** `MockPaymentProvider` runs 100% offline in `SIMULATED` execution mode with `external_reference = None`. Zero fabricated transaction IDs.
+- [x] **Geographic & Merchant Eligibility Safeguards:** `PayPalSandboxProvider` verifies merchant sender country and strictly rejects India (`IN`) per PayPal's "Receive and withdraw" limitation.
+- [x] **Pre-Provider State Persistence:** Database updates transaction to `SUBMITTED`, task to `PAYMENT_PENDING`, and bounty to `PAYMENT_PENDING` with a flush before provider execution begins.
+- [x] **Database-Enforced Idempotency:** Duplicate execution requests return the existing authoritative transaction record without duplicate provider calls or double-disbursements.
+- [x] **Definitive Failure Reversion:** Provider failure marks transaction as `FAILED`, task as `FAILED`, and restores bounty to `AWARDED`.
+- [x] **Ambiguous Outcome Recovery:** Timeout or unresolved provider state records `UNKNOWN`; reconciliation queries status safely without re-submitting payouts.
+- [x] **Audit Trail Completeness:** Immutable append-only audit events capture `PAYMENT_AUTHORIZED`, `PAYMENT_REJECTED`, `PAYMENT_SUBMITTED`, `PAYMENT_SUCCEEDED`, `PAYMENT_FAILED`, and `PAYMENT_RECONCILED`.
+
+---
+
+### 4. Remaining Limitations (Scope Boundaries)
+
+- **Interactive User Interface:** Streamlit UI dashboard and human approval screens are deferred to Session 4.
+- **Live Real-Money Transfers:** Real-money payouts and live PayPal endpoints are permanently excluded from scope.
+
+---
+
+### 5. Session 4 Roadmap
+
+1. Implement Streamlit dashboard for task creation, agent monitoring, and verification inspection.
+2. Implement Human Authorization and Payment Approval review panel in Streamlit.
+3. Implement Transaction Ledger and Audit Trail explorer in UI.

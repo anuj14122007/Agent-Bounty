@@ -22,12 +22,12 @@ The platform allows human users to submit tasks with verifiable acceptance crite
 
 ---
 
-## Current Implementation Status (Session 2 Completed)
+## Current Implementation Status (Session 3 Completed)
 
-Session 1 established the foundation and Session 2 implemented the autonomous agent runtime:
+Sessions 1, 2, and 3 are complete and verified:
 
 - [x] **Modular Monolith Foundation:** Clean package structure under `src/agentbounty/`.
-- [x] **Validated Configuration:** Pydantic Settings supporting offline `DEMO_MODE`, strict safety limits (`MAX_BOUNTY_USD`), and credential masking.
+- [x] **Validated Configuration:** Pydantic Settings supporting offline `DEMO_MODE`, strict safety limits (`MAX_BOUNTY_USD`), sender country checks, and credential masking.
 - [x] **Float-Free Money Handling:** Safe monetary conversion between `Decimal` and integer minor units (cents), strict float rejection, precision enforcement, and currency validation.
 - [x] **Persistence Models:** Full SQLAlchemy 2.x ORM models for `Agent`, `Task`, `Bounty`, `AgentMessage`, `WorkerResult`, `Verification`, `PaymentAuthorization`, `PaymentTransaction`, and `AuditEvent`.
 - [x] **SQLite & Relational Integrity:** Enforced SQLite foreign keys (`PRAGMA foreign_keys=ON`), unique constraints (1:1 task bounty, payment idempotency), and non-negative money check constraints.
@@ -37,15 +37,19 @@ Session 1 established the foundation and Session 2 implemented the autonomous ag
 - [x] **Manager Agent Delegation:** Capability analysis, deterministic worker selection (match score and lexicographical tie-breaking), and bounty allocation bounded by `MAX_BOUNTY_USD`. Manager authority strictly forbids approving verifications or executing payments.
 - [x] **Decoupled Verification Engine:** Independent criteria verification (`contains:`, `not_contains:`, `min_words:`, `max_words:`, `min_chars:`, `max_chars:`, `has_section:`). Ambiguous/unsupported criteria hold task for human review. Workers cannot verify their own results.
 - [x] **Task Orchestration & State Machine Enforcement:** End-to-end multi-stage pipeline coordinating task transitions, bounty reservation/award/cancellation, and persistent communication messages.
-- [x] **Automated Test Suite:** 108 passing pytest unit, schema, and integration tests verifying all Session 1 & 2 requirements.
+- [x] **Human Financial Authorization Gate:** Mandatory `HUMAN` role verification (`ActorContext`), exact amount/currency match, budget ceiling validation, rejection and revocation handling. (Note: Application-level role check, not independent identity authentication).
+- [x] **Deterministic Offline Mock Payment Provider:** Fully offline DEMO mode, `SIMULATED` execution mode, zero fabricated external IDs (`external_reference is None`), status simulation.
+- [x] **Optional PayPal Sandbox Provider:** Fail-closed geographic sender eligibility guard for India (`IN`), OAuth token handling, item-level reconciliation, injected transport for test isolation. (Note: Advisory configuration check, not verified account proof).
+- [x] **Payment Execution & Idempotency Boundary:** Database-enforced idempotency key, pre-call state persistence (`SUBMITTED`), provider execution outside DB locks, definitive failure reversion.
+- [x] **Payment Status Reconciliation:** Idempotent reconciliation service resolving `PENDING` and `UNKNOWN` states without resubmission.
+- [x] **Persistent Transaction Ledger:** Filtered database queries and consolidated task payment histories.
+- [x] **Automated Test Suite:** 155 passing pytest unit, schema, and integration tests verifying all Session 1, 2 & 3 requirements.
 
 ---
 
 ## What Is NOT Implemented Yet
 
 As per the strict scope boundaries:
-- Human payment authorization service (`PaymentAuthorizationService`) and payment execution (Session 3).
-- Payment provider implementations (MockPaymentProvider, PayPal Sandbox REST integration) (Session 3).
 - Streamlit interactive UI dashboard and human approval panel (Session 4).
 - Live real-money transactions (strictly excluded from product scope).
 
